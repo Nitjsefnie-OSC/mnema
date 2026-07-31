@@ -405,6 +405,10 @@ All settings are environment-driven (or `.env`):
 | `MNEMA_DREAM_ENABLED` | `false` | Auto Dream background consolidation |
 | `MNEMA_DREAM_INTERVAL_SECONDS` | `3600` | Seconds between dream cycles |
 | `MNEMA_DREAM_DECAY_THRESHOLD` | `0.05` | Decay cutoff for forgetting during dreams |
+| `MNEMA_SMART_FORGET_ENABLED` | `false` | Opt-in LLM veto on decay deletions (see [Smart forgetting](#-smart-forgetting-opt-in)) |
+| `MNEMA_JUDGE_MODEL` | — | Chat model for the smart-forgetting judge (required when enabled) |
+| `MNEMA_JUDGE_API_KEY` | — | Judge endpoint key (only sent when set) |
+| `MNEMA_JUDGE_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible judge endpoint |
 | `MNEMA_LOG_LEVEL` | `WARNING` | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` — verbose logs for bug reports |
 
 ---
@@ -564,6 +568,34 @@ score = 0.7·vector + 0.2·keyword + 0.1·decay
 ```
 
 where `decay = recency(half-life) × frequency × importance`.
+
+### 🤖 Smart forgetting (opt-in)
+
+By default Mnema is **deliberately LLM-free**: decay deletions come from the
+formula above alone. If you want a second opinion on borderline memories, you
+can opt in to an LLM judge that vets only the records the formula already
+selected for deletion:
+
+- The judge can only **rescue** — it never adds new deletion candidates.
+- **Fail-safe = KEEP** — any judge error, timeout, or unparseable answer
+  keeps the memory.
+- Disabled by default; when `MNEMA_SMART_FORGET_ENABLED` is unset/`false`,
+  no judge is constructed and **no LLM call is ever made**.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MNEMA_SMART_FORGET_ENABLED` | `false` | Master opt-in for the LLM judge |
+| `MNEMA_JUDGE_MODEL` | — | Chat model id (required when enabled) |
+| `MNEMA_JUDGE_API_KEY` | — | Sent as `Authorization: Bearer` only when set |
+| `MNEMA_JUDGE_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint |
+
+Fully local example with Ollama (no paid key needed):
+
+```bash
+export MNEMA_SMART_FORGET_ENABLED=true
+export MNEMA_JUDGE_BASE_URL=http://localhost:11434/v1
+export MNEMA_JUDGE_MODEL=qwen3:8b
+```
 
 ---
 
