@@ -19,6 +19,7 @@ import pytest
 from mnema.backends.base import BackendHit, BackendQuery, VectorBackend
 from mnema.config import MnemaConfig
 from mnema.embeddings.base import EmbeddingProvider
+from mnema.judge import MemoryJudge
 from mnema.models import Importance, MemoryRecord
 
 
@@ -158,6 +159,37 @@ class InMemoryBackend(VectorBackend):
 
 
 # ---------------------------------------------------------------------------
+# Scripted judge for smart-forgetting tests.
+# ---------------------------------------------------------------------------
+class FakeJudge(MemoryJudge):
+    """A scripted :class:`MemoryJudge` for tests.
+
+    ``verdicts`` maps memory id → FORGET (True) / KEEP (False); anything not
+    in the map gets ``default``. When ``raises`` is set, ``should_forget``
+    raises it instead (to prove the service fails safe). Every invocation is
+    recorded in ``calls`` as ``(memory_id, decay_score)``.
+    """
+
+    def __init__(
+        self,
+        verdicts: dict[str, bool] | None = None,
+        *,
+        default: bool = True,
+        raises: Exception | None = None,
+    ) -> None:
+        self.verdicts = dict(verdicts or {})
+        self.default = default
+        self.raises = raises
+        self.calls: list[tuple[str, float]] = []
+
+    async def should_forget(self, record: MemoryRecord, decay_score: float) -> bool:
+        self.calls.append((record.id, decay_score))
+        if self.raises is not None:
+            raise self.raises
+        return self.verdicts.get(record.id, self.default)
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 @pytest.fixture
@@ -183,11 +215,16 @@ def fake_config(tmp_path) -> MnemaConfig:
     return cfg
 
 
-def make_service(config: MnemaConfig, backend: VectorBackend, embedding: EmbeddingProvider):
+def make_service(
+    config: MnemaConfig,
+    backend: VectorBackend,
+    embedding: EmbeddingProvider,
+    judge: MemoryJudge | None = None,
+):
     """Build a MemoryService with injected fakes (bypassing make_backend)."""
     from mnema.service import MemoryService
 
-    return MemoryService(config, backend=backend, embedding=embedding)
+    return MemoryService(config, backend=backend, embedding=embedding, judge=judge)
 
 
 def make_record(

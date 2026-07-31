@@ -34,6 +34,22 @@ class TestConfig:
         cfg = MnemaConfig(embedding="openai", openai_api_key="sk-test")
         cfg.validate_runtime()  # should not raise
 
+    def test_validate_runtime_rejects_smart_forget_without_model(self):
+        cfg = MnemaConfig(smart_forget_enabled=True, judge_model=None)
+        with pytest.raises(ConfigError, match="MNEMA_JUDGE_MODEL"):
+            cfg.validate_runtime()
+
+    def test_validate_runtime_accepts_smart_forget_with_model(self):
+        cfg = MnemaConfig(smart_forget_enabled=True, judge_model="qwen3:8b")
+        cfg.validate_runtime()  # should not raise
+
+    def test_smart_forget_disabled_by_default(self):
+        cfg = MnemaConfig()
+        assert cfg.smart_forget_enabled is False
+        assert cfg.judge_model is None
+        assert cfg.judge_api_key is None
+        assert cfg.judge_base_url == "https://api.openai.com/v1"
+
     def test_env_override(self, monkeypatch):
         monkeypatch.setenv("MNEMA_BACKEND", "qdrant")
         monkeypatch.setenv("MNEMA_DECAY_HALF_LIFE_DAYS", "7")

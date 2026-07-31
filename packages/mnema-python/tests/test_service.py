@@ -174,6 +174,118 @@ class TestDecayAndSummarize:
         assert len(plan.clusters) >= 1
 
 
+class TestSmartForgetting:
+    """Opt-in LLM veto on the decay sweep (judge can only rescue, never condemn)."""
+
+    @pytest.fixture
+    def smart_config(self, basic_config):
+        return basic_config.model_copy(
+            update={"smart_forget_enabled": True, "judge_model": "test-model"}
+        )
+
+    async def _seed_decayed(self, backend, embedding, text="ancient note"):
+        """Add a record old enough to fall at/below the default threshold."""
+        from tests.fakes import make_record
+
+        record = make_record(text=text, importance=1, age_days=365.0)
+        vec = (await embedding.embed([record.text]))[0]
+        await backend.add(record, vec)
+        return record
+
+    async def test_disabled_never_constructs_judge(
+        self, basic_config, memory_backend, hashing_embedding
+    ):
+        """Default config: no judge is built, so no LLM call is possible."""
+        from tests.fakes import make_service
+
+        service = make_service(basic_config, memory_backend, hashing_embedding)
+        assert service._judge is None
+        rec = await self._seed_decayed(memory_backend, hashing_embedding)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=False)
+        # Formula behavior unchanged: the decayed record is deleted.
+        assert [c.id for c in candidates] == [rec.id]
+        with pytest.raises(MemoryNotFoundError):
+            await service.get(rec.id)
+
+    async def test_judge_forget_deletes(
+        self, smart_config, memory_backend, hashing_embedding
+    ):
+        from tests.fakes import FakeJudge, make_service
+
+        judge = FakeJudge(default=True)
+        service = make_service(
+            smart_config, memory_backend, hashing_embedding, judge=judge
+        )
+        rec = await self._seed_decayed(memory_backend, hashing_embedding)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=False)
+        assert [c.id for c in candidates] == [rec.id]
+        assert [mid for mid, _ in judge.calls] == [rec.id]
+        with pytest.raises(MemoryNotFoundError):
+            await service.get(rec.id)
+
+    async def test_judge_keep_rescues(
+        self, smart_config, memory_backend, hashing_embedding
+    ):
+        """Formula selected the record, but a KEEP verdict saves it."""
+        from tests.fakes import FakeJudge, make_service
+
+        judge = FakeJudge(default=False)
+        service = make_service(
+            smart_config, memory_backend, hashing_embedding, judge=judge
+        )
+        rec = await self._seed_decayed(memory_backend, hashing_embedding)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=False)
+        assert candidates == []
+        assert [mid for mid, _ in judge.calls] == [rec.id]
+        # Survived the real (non-dry-run) sweep.
+        assert (await service.get(rec.id)).text == "ancient note"
+
+    async def test_judge_error_fails_safe(
+        self, smart_config, memory_backend, hashing_embedding
+    ):
+        """A raising judge must never cause a deletion."""
+        from tests.fakes import FakeJudge, make_service
+
+        judge = FakeJudge(raises=RuntimeError("judge exploded"))
+        service = make_service(
+            smart_config, memory_backend, hashing_embedding, judge=judge
+        )
+        rec = await self._seed_decayed(memory_backend, hashing_embedding)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=False)
+        assert candidates == []
+        assert (await service.get(rec.id)).text == "ancient note"
+
+    async def test_judge_applies_in_dry_run(
+        self, smart_config, memory_backend, hashing_embedding
+    ):
+        """Dry-run reflects what smart mode would actually do."""
+        from tests.fakes import FakeJudge, make_service
+
+        judge = FakeJudge(default=False)
+        service = make_service(
+            smart_config, memory_backend, hashing_embedding, judge=judge
+        )
+        rec = await self._seed_decayed(memory_backend, hashing_embedding)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=True)
+        assert candidates == []
+        assert [mid for mid, _ in judge.calls] == [rec.id]
+
+    async def test_judge_never_sees_above_threshold(
+        self, smart_config, memory_backend, hashing_embedding
+    ):
+        """The judge can only rescue: fresh memories are never shown to it."""
+        from tests.fakes import FakeJudge, make_service
+
+        judge = FakeJudge(default=True)
+        service = make_service(
+            smart_config, memory_backend, hashing_embedding, judge=judge
+        )
+        await service.remember("fresh memory", importance=5)
+        candidates = await service.apply_decay(threshold=0.05, dry_run=True)
+        assert candidates == []
+        assert judge.calls == []
+
+
 class TestSDK:
     async def test_sdk_memory_client_lifecycle(self, basic_config, memory_backend, hashing_embedding):
         from mnema.sdk import MemoryClient
