@@ -175,6 +175,34 @@ class MnemaConfig(BaseSettings):
         ),
     )
 
+    # --- Smart forgetting (opt-in LLM judge) -----------------------------
+    smart_forget_enabled: bool = Field(
+        default=False,
+        description=(
+            "Opt-in: let a configured LLM veto decay-sweep deletions. When "
+            "False (default) no judge is constructed and no LLM is ever "
+            "called."
+        ),
+    )
+    judge_model: str | None = Field(
+        default=None,
+        description="Chat model id for the smart-forgetting judge (required when enabled)",
+    )
+    judge_api_key: str | None = Field(
+        default=None,
+        description=(
+            "API key for the judge endpoint, sent as 'Authorization: Bearer' "
+            "only when set (local servers like Ollama need none)"
+        ),
+    )
+    judge_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description=(
+            "OpenAI-compatible base URL for the judge endpoint "
+            "(use http://localhost:11434/v1 for Ollama)"
+        ),
+    )
+
     # --- Logging / diagnostics -------------------------------------------
     log_level: str = Field(
         default="WARNING",
@@ -221,6 +249,10 @@ class MnemaConfig(BaseSettings):
         if self.embedding == "nomic" and not self.nomic_api_key:
             raise ConfigError(
                 "embedding='nomic' requires MNEMA_NOMIC_API_KEY to be set."
+            )
+        if self.smart_forget_enabled and not self.judge_model:
+            raise ConfigError(
+                "smart_forget_enabled=True requires MNEMA_JUDGE_MODEL to be set."
             )
 
 

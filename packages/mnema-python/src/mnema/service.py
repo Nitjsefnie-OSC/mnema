@@ -8,6 +8,7 @@ tools, the SDK, and the CLI — keeping tool definitions thin.
 from __future__ import annotations
 
 import contextlib
+import logging
 import time
 from collections.abc import Callable, Sequence
 
@@ -16,6 +17,7 @@ from mnema.config import MnemaConfig, load_config
 from mnema.decay import DecayParams, combine, decay_score
 from mnema.embeddings import EmbeddingProvider, make_embedding
 from mnema.errors import MemoryNotFoundError, ScopeError
+from mnema.judge import MemoryJudge, make_judge
 from mnema.models import (
     Importance,
     MemoryRecord,
@@ -25,6 +27,8 @@ from mnema.models import (
     Stats,
 )
 from mnema.summarize import SummarizationPlan, plan_summarization
+
+logger = logging.getLogger("mnema.service")
 
 
 def _coerce_importance(value: int | Importance) -> Importance:
@@ -55,11 +59,13 @@ class MemoryService:
         *,
         backend: VectorBackend | None = None,
         embedding: EmbeddingProvider | None = None,
+        judge: MemoryJudge | None = None,
     ) -> None:
         self.config = config or load_config()
         self.config.validate_runtime()
         self._backend = backend or make_backend(self.config)
         self._embedding = embedding or make_embedding(self.config)
+        self._judge = judge or make_judge(self.config)
         self._decay = DecayParams(
             half_life_days=self.config.decay_half_life_days,
             floor=self.config.decay_floor,
@@ -278,6 +284,10 @@ class MemoryService:
     ) -> list[MemoryRecord]:
         """Compute decay scores and (optionally) forget below ``threshold``.
 
+        When smart forgetting is enabled (``MNEMA_SMART_FORGET_ENABLED``),
+        each candidate is additionally vetted by the configured judge, which
+        can only rescue memories — never condemn new ones.
+
         Args:
             scope: Restrict the sweep to one scope, or None for all.
             threshold: Decay score below which a memory is a forget candidate.
@@ -300,10 +310,43 @@ class MemoryService:
             if score <= threshold:
                 candidates.append(record.model_copy(update={"score": score}))
 
+        if self._judge is not None:
+            candidates = await self._veto_with_judge(candidates)
+
         if not dry_run:
             for c in candidates:
                 await self._backend.delete(c.id)
         return candidates
+
+    async def _veto_with_judge(
+        self, candidates: list[MemoryRecord]
+    ) -> list[MemoryRecord]:
+        """Let the smart-forgetting judge veto (rescue) candidates.
+
+        The judge can only narrow the candidate list, never widen it, and a
+        judge failure always keeps the memory (fail-safe = KEEP).
+        """
+        judge = self._judge
+        if judge is None:
+            return candidates
+        condemned: list[MemoryRecord] = []
+        for c in candidates:
+            score = float(c.score) if c.score is not None else 0.0
+            try:
+                forget = await judge.should_forget(c, score)
+            except Exception as exc:
+                # A conforming judge never raises; if one does, fail safe.
+                logger.warning(
+                    "smart-forget judge raised for memory %s; keeping it: %s",
+                    c.id,
+                    exc,
+                )
+                forget = False
+            if forget:
+                condemned.append(c)
+            else:
+                logger.info("smart-forget judge rescued memory %s", c.id)
+        return condemned
 
     async def summarize(
         self,
@@ -324,6 +367,8 @@ class MemoryService:
     async def aclose(self) -> None:
         await self._embedding.aclose()
         await self._backend.aclose()
+        if self._judge is not None:
+            await self._judge.aclose()
 
     # --- private --------------------------------------------------------
     async def _touch(self, record: MemoryRecord) -> None:
