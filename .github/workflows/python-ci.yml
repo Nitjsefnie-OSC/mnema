@@ -33,8 +33,8 @@ jobs:
       - name: Create venv
         run: uv venv --python ${{ matrix.python-version }} .venv
 
-      - name: Install package (all backends + dev)
-        run: VIRTUAL_ENV=.venv uv pip install -e '.[all,dev]'
+      - name: Install package (all backends + api + dev)
+        run: VIRTUAL_ENV=.venv uv pip install -e '.[all,api,dev]'
 
       - name: Lint (ruff)
         run: .venv/bin/ruff check src/ tests/
