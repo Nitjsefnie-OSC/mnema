@@ -64,6 +64,8 @@ cohere = []
 voyage = []
 # Nomic embeddings (httpx is already a core dep).
 nomic = []
+# REST API server + dashboard (mnema serve / mnema dashboard).
+api = ["fastapi>=0.115", "uvicorn>=0.30"]
 # Everything most users will want (Chroma backend + local embeddings).
 default = [
     "chromadb>=0.5",
