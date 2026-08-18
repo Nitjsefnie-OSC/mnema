@@ -1,0 +1,91 @@
+name: OSC Manual CI
+
+# Generic dispatch wrapper: runs the repository's own Python ship checks
+# (install, ruff lint, pytest) against an arbitrary caller-supplied ref.
+# The ref is resolved to an exact commit first so every job tests the same
+# immutable SHA.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Branch, tag, or SHA to test"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve target ref
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.pin.outputs.commit }}
+      package_present: ${{ steps.pin.outputs.package_present }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+
+      - name: Pin the resolved commit
+        id: pin
+        run: |
+          echo "Requested target_ref: ${{ inputs.target_ref }}"
+          echo "Resolved commit: $(git rev-parse HEAD)"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ -f packages/mnema-python/pyproject.toml ]; then
+            echo "package_present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "package_present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::packages/mnema-python/pyproject.toml not found at the resolved commit; repository-specific checks will be skipped"
+          fi
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    needs: resolve
+    if: needs.resolve.outputs.package_present == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    defaults:
+      run:
+        working-directory: packages/mnema-python
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python-version }} .venv
+
+      - name: Install package (all backends + dev)
+        run: VIRTUAL_ENV=.venv uv pip install -e '.[all,dev]'
+
+      - name: Lint (ruff)
+        run: .venv/bin/ruff check src/ tests/
+
+      - name: Run tests
+        run: .venv/bin/pytest -v --cov=mnema --cov-report=term-missing
+
+  skipped:
+    name: Repository-specific checks skipped
+    needs: resolve
+    if: needs.resolve.outputs.package_present != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain the skip
+        run: |
+          echo "::notice::SKIP: the resolved commit does not contain packages/mnema-python/pyproject.toml, so the mnema-python install/lint/test checks do not apply to this target_ref. Nothing was run."
