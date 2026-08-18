@@ -22,7 +22,11 @@ from types import ModuleType
 from typing import get_args
 
 import pytest
-import tomllib
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from mnema.backends import make_backend
 from mnema.config import BackendName, MnemaConfig
