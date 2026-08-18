@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.pin.outputs.commit }}
-      package_present: ${{ steps.pin.outputs.package_present }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,21 +29,21 @@ jobs:
 
       - name: Pin the resolved commit
         id: pin
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
         run: |
-          echo "Requested target_ref: ${{ inputs.target_ref }}"
-          echo "Resolved commit: $(git rev-parse HEAD)"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          if [ -f packages/mnema-python/pyproject.toml ]; then
-            echo "package_present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "package_present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::packages/mnema-python/pyproject.toml not found at the resolved commit; repository-specific checks will be skipped"
+          printf 'Requested target_ref: %s\n' "$TARGET_REF"
+          commit="$(git rev-parse HEAD)"
+          printf 'Resolved commit: %s\n' "$commit"
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+          if [ ! -f packages/mnema-python/pyproject.toml ]; then
+            printf '%s\n' '::error::packages/mnema-python/pyproject.toml not found at the resolved commit; verification cannot proceed'
+            exit 1
           fi
 
   test:
     name: Test (Python ${{ matrix.python-version }})
     needs: resolve
-    if: needs.resolve.outputs.package_present == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -79,13 +78,3 @@ jobs:
 
       - name: Run tests
         run: .venv/bin/pytest -v --cov=mnema --cov-report=term-missing
-
-  skipped:
-    name: Repository-specific checks skipped
-    needs: resolve
-    if: needs.resolve.outputs.package_present != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Explain the skip
-        run: |
-          echo "::notice::SKIP: the resolved commit does not contain packages/mnema-python/pyproject.toml, so the mnema-python install/lint/test checks do not apply to this target_ref. Nothing was run."

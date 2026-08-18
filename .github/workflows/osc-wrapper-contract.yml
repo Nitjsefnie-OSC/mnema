@@ -1,0 +1,20 @@
+name: OSC Manual Wrapper Contract
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Wrapper contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Run wrapper contract
+        run: python3 -m unittest discover -s .github/tests -p 'test_osc_manual_contract.py' -v
