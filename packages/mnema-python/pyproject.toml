@@ -20,6 +20,7 @@ keywords = [
     "rag",
     "chromadb",
     "qdrant",
+    "lancedb",
     "semantic-search",
 ]
 classifiers = [
@@ -51,6 +52,8 @@ qdrant = ["qdrant-client>=1.9"]
 # Pure-SQLite zero-dependency backend.
 sqlite_vec = ["sqlite-vec>=0.1.6"]
 pgvector = ["asyncpg>=0.29", "pgvector>=0.3"]
+# Embedded columnar vector DB (Lance format).
+lancedb = ["lancedb>=0.10"]
 # Local offline embeddings (default).
 local = ["sentence-transformers>=2.7"]
 # OpenAI embeddings (optional).
@@ -76,6 +79,7 @@ all = [
     "sqlite-vec>=0.1.6",
     "asyncpg>=0.29",
     "pgvector>=0.3",
+    "lancedb>=0.10",
     "sentence-transformers>=2.7",
     "openai>=1.40",
 ]
@@ -126,7 +130,7 @@ warn_unused_ignores = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["chromadb.*", "qdrant_client.*", "sqlite_vec.*", "asyncpg.*", "sentence_transformers.*"]
+module = ["chromadb.*", "qdrant_client.*", "sqlite_vec.*", "asyncpg.*", "lancedb.*", "sentence_transformers.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -139,6 +143,7 @@ markers = [
     "qdrant: tests that exercise the Qdrant backend",
     "sqlite_vec: tests that exercise the sqlite-vec backend",
     "pgvector: tests that exercise the pgvector backend",
+    "lancedb: tests that exercise the LanceDB backend",
     "openai: tests that require an OpenAI API key",
 ]
 

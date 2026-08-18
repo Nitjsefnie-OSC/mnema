@@ -50,6 +50,13 @@ def make_backend(config: MnemaConfig) -> VectorBackend:
             raise BackendNotAvailableError("pgvector", "pgvector") from exc
         return PgVectorBackend(config)
 
+    if backend == "lancedb":
+        try:
+            from mnema.backends.lancedb import LanceDBBackend
+        except ImportError as exc:  # pragma: no cover
+            raise BackendNotAvailableError("lancedb", "lancedb") from exc
+        return LanceDBBackend(config)
+
     raise ConfigError(f"Unknown backend: {backend!r}")
 
 
