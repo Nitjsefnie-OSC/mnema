@@ -51,10 +51,17 @@ class OscManualContractTest(unittest.TestCase):
 
     def test_missing_package_is_fatal(self) -> None:
         step = _resolver_step()
-        missing_branch = re.search(r"\n\s+else\n(?P<body>.*?)\n\s+fi", step, re.DOTALL)
+        missing_branch = re.search(
+            r"if \[ ! -f packages/mnema-python/pyproject\.toml \]; then(?P<body>.*?)\n\s*fi",
+            step,
+            re.DOTALL,
+        )
+        if missing_branch is None:
+            missing_branch = re.search(r"\n\s+else\n(?P<body>.*?)\n\s+fi", step, re.DOTALL)
 
         self.assertIsNotNone(missing_branch, "resolver must handle a missing package explicitly")
-        assert missing_branch is not None
+        if missing_branch is None:
+            return
         self.assertRegex(
             missing_branch.group("body"),
             r"(?m)^\s*exit 1\s*$",
